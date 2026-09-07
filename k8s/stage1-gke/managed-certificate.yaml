@@ -1,0 +1,9 @@
+# Requires a real domain with DNS pointed at the Ingress's reserved static IP.
+apiVersion: networking.gke.io/v1
+kind: ManagedCertificate
+metadata:
+  name: orderflow-cert
+  namespace: orderflow
+spec:
+  domains:
+    - orderflow.example.com   # TODO: replace with your domain

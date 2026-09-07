@@ -1,0 +1,33 @@
+# Stage 2 resource - only apply this once you've done the VPC-native cluster
+# + Cloud SQL networking work described in docs/ROADMAP.md Stage 2.
+#
+# This provisions a GCP HTTP(S) Load Balancer automatically. Compare this
+# object 1:1 against the AGIC-annotated Ingress you'll write for AKS in
+# Stage 7 - same K8s API, different controller underneath.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: orderflow-ingress
+  namespace: orderflow
+  annotations:
+    kubernetes.io/ingress.class: "gce"
+    # Uncomment once you've reserved a static external IP:
+    # kubernetes.io/ingress.global-static-ip-name: "orderflow-ip"
+    # Google-managed cert (requires a ManagedCertificate resource + a real domain):
+    # networking.gke.io/managed-certificates: "orderflow-cert"
+spec:
+  rules:
+    - http:
+        paths:
+          - path: /api/*
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: api-gateway
+                port: { number: 8080 }
+          - path: /*
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: ui
+                port: { number: 80 }
