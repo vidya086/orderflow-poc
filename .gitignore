@@ -6,5 +6,5 @@ dist/
 .DS_Store
 .idea/
 *.iml
-
+**/.terraform/
 terraform/gcp/*.tfstate*
