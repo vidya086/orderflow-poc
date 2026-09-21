@@ -3,20 +3,19 @@ name: Build and Deploy OrderFlow
 on:
   push:
     branches: [master]
+    paths-ignore:
+      - 'k8s/base/**'   # prevents the update-manifests job's own commits from re-triggering this workflow
 
 env:
   REGION: asia-south1
   PROJECT_ID: my-first-gcp-project-vbmpr1
-  CLUSTER_NAME: orderflow-gke
-  CLUSTER_ZONE: asia-south1-a
   REGISTRY: asia-south1-docker.pkg.dev/my-first-gcp-project-vbmpr1/orderflow
-  # From `gcloud iam workload-identity-pools providers describe ...` output above
   WIF_PROVIDER: projects/623761784764/locations/global/workloadIdentityPools/github-pool/providers/github-provider
   WIF_SERVICE_ACCOUNT: orderflow-ci@my-first-gcp-project-vbmpr1.iam.gserviceaccount.com
 
 permissions:
   contents: read
-  id-token: write   # this is what lets GitHub mint the OIDC token WIF trusts
+  id-token: write
 
 jobs:
   build-and-push:
@@ -58,33 +57,41 @@ jobs:
           docker build -t "$IMAGE" ${{ steps.ctx.outputs.path }}
           docker push "$IMAGE"
 
-  deploy:
+  # Replaces the old kubectl-based deploy job entirely. This job never
+  # touches the Kubernetes API - it only edits git. ArgoCD, running inside
+  # the cluster, is what actually applies the change - solving the private
+  # control-plane access problem by removing the need for CI to reach the
+  # cluster network at all.
+  update-manifests:
     needs: build-and-push
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
-
-      - id: auth
-        uses: google-github-actions/auth@v2
         with:
-          workload_identity_provider: ${{ env.WIF_PROVIDER }}
-          service_account: ${{ env.WIF_SERVICE_ACCOUNT }}
+          ref: master
 
-      - uses: google-github-actions/setup-gcloud@v2
+      - name: Install kustomize
+        run: |
+          curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+          sudo mv kustomize /usr/local/bin/
 
-      - uses: google-github-actions/get-gke-credentials@v2
-        with:
-          cluster_name: ${{ env.CLUSTER_NAME }}
-          location: ${{ env.CLUSTER_ZONE }}
-
-      - name: Point each Deployment at the freshly-built, SHA-tagged image
+      - name: Bump image tags to this commit's SHA
+        working-directory: k8s/base
         run: |
           for svc in order-service inventory-service notification-service api-gateway ui; do
-            kubectl -n orderflow set image deployment/${svc} ${svc}=${{ env.REGISTRY }}/${svc}:${{ github.sha }}
+            kustomize edit set image ${{ env.REGISTRY }}/${svc}=${{ env.REGISTRY }}/${svc}:${{ github.sha }}
           done
 
-      - name: Wait for rollout to actually succeed (fail the pipeline if it doesn't)
+      - name: Commit and push the manifest change
         run: |
-          for svc in order-service inventory-service notification-service api-gateway ui; do
-            kubectl -n orderflow rollout status deployment/${svc} --timeout=180s
-          done
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add k8s/base/kustomization.yaml
+          if git diff --cached --quiet; then
+            echo "No image changes - nothing to commit"
+            exit 0
+          fi
+          git commit -m "deploy: bump images to ${{ github.sha }}"
+          git push
