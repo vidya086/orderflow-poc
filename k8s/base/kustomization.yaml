@@ -1,0 +1,18 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# NOTE: 02-postgres.yaml and 02a-postgres-init-configmap.yaml are
+# deliberately NOT listed here - Postgres moved to Cloud SQL in Stage 2.
+# The files stay in the repo as a reference/rollback point, but ArgoCD
+# only manages what's actually part of desired state.
+resources:
+  - 00-namespace.yaml
+  - 01-config-and-secrets.yaml
+  - 03-rabbitmq.yaml
+  - 04-redis.yaml
+  - 05-order-service.yaml
+  - 06-inventory-service.yaml
+  - 07-notification-service.yaml
+  - 08-api-gateway.yaml
+  - 09-ui.yaml
+  - 10-ingress.yaml
